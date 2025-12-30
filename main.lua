@@ -16,7 +16,10 @@ local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 local humanoid
+
+local Lighting = game:GetService("Lighting")
 
 --------------------------------------------------
 -- STATES
@@ -26,20 +29,23 @@ local InstantInteractEnabled = false
 local InfiniteJumpEnabled = false
 local AntiAFKEnabled = false
 local NoclipEnabled = false
-local FlyEnabled = false
 
 local DEFAULT_WALKSPEED = 16
 local TargetWalkSpeed = DEFAULT_WALKSPEED
 local walkSpeedConn
 
 --------------------------------------------------
+-- NO FOG
+--------------------------------------------------
+local NoFogEnabled = false
+local DEFAULT_FOG_START = Lighting.FogStart
+local DEFAULT_FOG_END = Lighting.FogEnd
+
+--------------------------------------------------
 -- FLY STATES
 --------------------------------------------------
-local flyConn, flyBV, flyBG
-local flyUp = false
-local flyDown = false
-local VERTICAL_MULTIPLIER = 1.6
-local camera = workspace.CurrentCamera
+local flying = false
+local flyConnection = nil
 
 --------------------------------------------------
 -- NOCLIP STATES
@@ -56,72 +62,73 @@ local frameCount = 0
 local lastFpsUpdate = os.clock()
 
 --------------------------------------------------
--- INPUT (FLY)
+-- FLY FUNCTIONS (CLEAN & SAFE)
 --------------------------------------------------
-UserInputService.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if input.KeyCode == Enum.KeyCode.Space then
-		flyUp = true
-	elseif input.KeyCode == Enum.KeyCode.LeftShift then
-		flyDown = true
-	end
-end)
+local function startFlying()
+	if flying then return end
+	flying = true
 
-UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.Space then
-		flyUp = false
-	elseif input.KeyCode == Enum.KeyCode.LeftShift then
-		flyDown = false
-	end
-end)
+	local character = player.Character
+	if not character then return end
 
---------------------------------------------------
--- FLY FUNCTIONS (DEFINED BEFORE USE)
---------------------------------------------------
-local function disableFly()
-	FlyEnabled = false
-	flyUp = false
-	flyDown = false
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
 
-	if flyConn then flyConn:Disconnect() flyConn = nil end
-	if flyBV then flyBV:Destroy() flyBV = nil end
-	if flyBG then flyBG:Destroy() flyBG = nil end
-end
+	local gyro = Instance.new("BodyGyro")
+	gyro.Name = "FlyGyro"
+	gyro.P = 9e4
+	gyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+	gyro.CFrame = camera.CFrame
+	gyro.Parent = hrp
 
-local function enableFly()
-	if FlyEnabled or not humanoid then return end
-	FlyEnabled = true
+	local velocity = Instance.new("BodyVelocity")
+	velocity.Name = "FlyVelocity"
+	velocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+	velocity.Parent = hrp
 
-	local hrp = humanoid.Parent:WaitForChild("HumanoidRootPart")
+	flyConnection = RunService.RenderStepped:Connect(function()
+		if not flying then return end
 
-	flyBV = Instance.new("BodyVelocity")
-	flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-	flyBV.Parent = hrp
-
-	flyBG = Instance.new("BodyGyro")
-	flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-	flyBG.P = 5e4
-	flyBG.Parent = hrp
-
-	flyConn = RunService.RenderStepped:Connect(function()
-		if not FlyEnabled or not humanoid then return end
-
-		local dir = humanoid.MoveDirection
+		local moveVec = Vector3.zero
+		local camCF = camera.CFrame
 		local speed = WalkSpeedEnabled and TargetWalkSpeed or DEFAULT_WALKSPEED
 
-		local y = 0
-		if flyUp then y = speed * VERTICAL_MULTIPLIER end
-		if flyDown then y = -speed * VERTICAL_MULTIPLIER end
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVec += camCF.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVec -= camCF.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVec -= camCF.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVec += camCF.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVec += camCF.UpVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveVec -= camCF.UpVector end
 
-		flyBV.Velocity = Vector3.new(dir.X * speed * 2, y, dir.Z * speed * 2)
-		flyBG.CFrame = camera.CFrame
+		velocity.Velocity = moveVec.Magnitude > 0 and moveVec.Unit * speed or Vector3.zero
+		gyro.CFrame = camCF
 	end)
 end
 
---------------------------------------------------
--- WALK SPEED FUNCTIONS
---------------------------------------------------
+local function stopFlying()
+	flying = false
 
+	if flyConnection then
+		flyConnection:Disconnect()
+		flyConnection = nil
+	end
+
+	local character = player.Character
+	if not character then return end
+
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	for _, v in ipairs(hrp:GetChildren()) do
+		if v:IsA("BodyGyro") or v:IsA("BodyVelocity") then
+			v:Destroy()
+		end
+	end
+end
+
+--------------------------------------------------
+-- WALK SPEED GUARD (ANTI RESET)
+--------------------------------------------------
 local function applyWalkSpeedGuard()
 	if not humanoid then return end
 
@@ -129,7 +136,6 @@ local function applyWalkSpeedGuard()
 
 	if walkSpeedConn then
 		walkSpeedConn:Disconnect()
-		walkSpeedConn = nil
 	end
 
 	walkSpeedConn = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
@@ -145,35 +151,23 @@ end
 local function setupHumanoid(char)
 	humanoid = char:WaitForChild("Humanoid")
 	DEFAULT_WALKSPEED = humanoid.WalkSpeed
-	disableFly()
+
+	stopFlying()
+
+	if WalkSpeedEnabled then
+		task.delay(0.1, applyWalkSpeedGuard)
+	end
 end
 
 if player.Character then setupHumanoid(player.Character) end
 player.CharacterAdded:Connect(setupHumanoid)
-
--- reset noclip saat respawn
-if noclipConn then
-	noclipConn:Disconnect()
-	noclipConn = nil
-end
-
-table.clear(originalCollisions)
-NoclipEnabled = false
-if noclipSwitch then
-	noclipSwitch.set(false)
-end
-
-if WalkSpeedEnabled then
-	task.wait(0.1)
-	applyWalkSpeedGuard()
-end
 
 --------------------------------------------------
 -- UI WINDOW
 --------------------------------------------------
 local window = engine.new({
 	text = "Movement",
-	size = Vector2.new(380, 300),
+	size = Vector2.new(350, 320),
 })
 window.open()
 
@@ -200,29 +194,20 @@ end
 imgui.DescendantAdded:Connect(applyTheme)
 
 --------------------------------------------------
--- UI LABELS (SAFE & CLEAN)
+-- UI LABELS
 --------------------------------------------------
-local runtimeLabel = tab.new("label", {
-	text = "Runtime: 00:00:00",
-})
-
-local statsLabel = tab.new("label", {
-	text = "FPS: 0 | Ping: 0 ms",
-})
-
+local runtimeLabel = tab.new("label", { text = "Runtime: 00:00:00" })
+local statsLabel = tab.new("label", { text = "FPS: 0 | Ping: 0 ms" })
 
 --------------------------------------------------
 -- WALKSPEED
 --------------------------------------------------
 tab.new("switch", { text = "Enable WalkSpeed" }).event:Connect(function(v)
 	WalkSpeedEnabled = v
-	if humanoid then
+	if v and humanoid then
 		applyWalkSpeedGuard()
-	else
-		if walkSpeedConn then
-			walkSpeedConn:Disconnect()
-			walkSpeedConn = nil
-		end
+	elseif humanoid then
+		if walkSpeedConn then walkSpeedConn:Disconnect() end
 		humanoid.WalkSpeed = DEFAULT_WALKSPEED
 	end
 end)
@@ -240,7 +225,18 @@ tab.new("slider", {
 end)
 
 --------------------------------------------------
--- SWITCHES
+-- FLY MODE (CLEAN)
+--------------------------------------------------
+tab.new("switch", { text = "Fly Mode" }).event:Connect(function(state)
+	if state then
+		startFlying()
+	else
+		stopFlying()
+	end
+end)
+
+--------------------------------------------------
+-- OTHER FEATURES
 --------------------------------------------------
 tab.new("switch", { text = "Instant Interact" }).event:Connect(function(v)
 	InstantInteractEnabled = v
@@ -254,61 +250,58 @@ tab.new("switch", { text = "Anti AFK" }).event:Connect(function(v)
 	AntiAFKEnabled = v
 end)
 
-tab.new("switch", { text = "Fly Mode" }).event:Connect(function(v)
-	if v then enableFly() else disableFly() end
-end)
-
 --------------------------------------------------
--- NOCLIP SWITCH (SAFE & SMOOTH)
+-- NOCLIP
 --------------------------------------------------
-local noclipSwitch = tab.new("switch", {
-	text = "Noclip",
-})
+local noclipSwitch = tab.new("switch", { text = "Noclip" })
 noclipSwitch.set(false)
 
 noclipSwitch.event:Connect(function(state)
 	NoclipEnabled = state
 
 	if state then
-		-- ENABLE NOCLIP
 		table.clear(originalCollisions)
 
-		if humanoid then
-			for _, part in ipairs(humanoid.Parent:GetDescendants()) do
-				if part:IsA("BasePart") then
-					originalCollisions[part] = part.CanCollide
-					part.CanCollide = false
-				end
+		for _, part in ipairs(humanoid.Parent:GetDescendants()) do
+			if part:IsA("BasePart") then
+				originalCollisions[part] = part.CanCollide
+				part.CanCollide = false
 			end
 		end
 
-		if noclipConn then noclipConn:Disconnect() end
 		noclipConn = RunService.Stepped:Connect(function()
-			if not humanoid then return end
 			for _, part in ipairs(humanoid.Parent:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.CanCollide = false
 				end
 			end
 		end)
-
 	else
-		-- DISABLE NOCLIP (RESTORE ORIGINAL COLLISION)
-		if noclipConn then
-			noclipConn:Disconnect()
-			noclipConn = nil
-		end
-
+		if noclipConn then noclipConn:Disconnect() end
 		for part, canCollide in pairs(originalCollisions) do
 			if part and part.Parent then
 				part.CanCollide = canCollide
 			end
 		end
-
-		table.clear(originalCollisions)
 	end
 end)
 
+--------------------------------------------------
+-- NO FOG (CLIENT VISUAL)
+--------------------------------------------------
+tab.new("switch", { text = "No Fog (Clear Skies)" }).event:Connect(function(state)
+	NoFogEnabled = state
+
+	if state then
+		-- Disable fog
+		Lighting.FogStart = 1e7
+		Lighting.FogEnd = 1e7 + 1000
+	else
+		-- Restore default fog
+		Lighting.FogStart = DEFAULT_FOG_START
+		Lighting.FogEnd = DEFAULT_FOG_END
+	end
+end)
 
 --------------------------------------------------
 -- LOGICS
@@ -326,34 +319,15 @@ end)
 player.Idled:Connect(function()
 	if AntiAFKEnabled then
 		VirtualUser:Button2Down(Vector2.new(), camera.CFrame)
-		task.wait(0.03)
+		task.wait(0.05)
 		VirtualUser:Button2Up(Vector2.new(), camera.CFrame)
 	end
 end)
 
 --------------------------------------------------
--- UI TOGGLE (,)
---------------------------------------------------
-local imgui = CoreGui:WaitForChild("imgui2")
-local hidden = false
-
-UserInputService.InputBegan:Connect(function(i, gp)
-	if gp then return end
-	if i.KeyCode == Enum.KeyCode.Comma then
-		for _, v in ipairs(imgui:GetChildren()) do
-			if v:IsA("ImageLabel") and v.Name == "Main" then
-				hidden = not hidden
-				v.Visible = not hidden
-			end
-		end
-	end
-end)
-
---------------------------------------------------
--- TIMER, FPS & PING (OPTIMIZED)
+-- TIMER, FPS & PING
 --------------------------------------------------
 RunService.Heartbeat:Connect(function()
-	-- FPS
 	frameCount += 1
 	local now = os.clock()
 
@@ -363,22 +337,27 @@ RunService.Heartbeat:Connect(function()
 		lastFpsUpdate = now
 	end
 
-	-- Runtime
 	local t = math.floor(now - startTime)
-	runtimeLabel.setText(string.format(
-		"Runtime: %02d:%02d:%02d",
-		t // 3600,
-		(t % 3600) // 60,
-		t % 60
-	))
+	runtimeLabel.setText(string.format("Runtime: %02d:%02d:%02d", t//3600, (t%3600)//60, t%60))
 
-	-- Ping
-	local pingMs = math.floor(player:GetNetworkPing() * 1000)
+	local ping = math.floor(player:GetNetworkPing() * 1000)
+	statsLabel.setText(string.format("FPS: %d | Ping: %d ms", fps, ping))
+end)
 
-	-- FPS + Ping (ONE LINE)
-	statsLabel.setText(
-		string.format("FPS: %d | Ping: %d ms", fps, pingMs)
-	)
+--------------------------------------------------
+-- UI TOGGLE ( , )
+--------------------------------------------------
+local hidden = false
+UserInputService.InputBegan:Connect(function(i, gp)
+	if gp then return end
+	if i.KeyCode == Enum.KeyCode.Comma then
+		for _, v in ipairs(CoreGui.imgui2:GetChildren()) do
+			if v:IsA("ImageLabel") and v.Name == "Main" then
+				hidden = not hidden
+				v.Visible = not hidden
+			end
+		end
+	end
 end)
 
 --------------------------------------------------
