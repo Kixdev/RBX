@@ -19,7 +19,9 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 local humanoid
 
-local Lighting = game:GetService("Lighting")
+local NoFogEnabled = false
+local renderConn
+local heartbeatConn
 
 --------------------------------------------------
 -- STATES
@@ -34,12 +36,25 @@ local DEFAULT_WALKSPEED = 16
 local TargetWalkSpeed = DEFAULT_WALKSPEED
 local walkSpeedConn
 
+local MAX_INTERACT_DISTANCE = 12
+local PromptDefaults = {}
+local StalePrompts = {}
+
 --------------------------------------------------
 -- NO FOG
 --------------------------------------------------
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+
 local NoFogEnabled = false
-local DEFAULT_FOG_START = Lighting.FogStart
-local DEFAULT_FOG_END = Lighting.FogEnd
+local tickConn
+
+-- Save defaults
+local DEFAULT = {
+	FogStart = Lighting.FogStart,
+	FogEnd   = Lighting.FogEnd,
+	Atmosphere = {},
+}
 
 --------------------------------------------------
 -- FLY STATES
@@ -127,7 +142,7 @@ local function stopFlying()
 end
 
 --------------------------------------------------
--- WALK SPEED GUARD (ANTI RESET)
+-- WALK SPEED GUARD
 --------------------------------------------------
 local function applyWalkSpeedGuard()
 	if not humanoid then return end
@@ -146,7 +161,7 @@ local function applyWalkSpeedGuard()
 end
 
 --------------------------------------------------
--- HUMANOID SETUP (RESPAWN SAFE)
+-- HUMANOID SETUP
 --------------------------------------------------
 local function setupHumanoid(char)
 	humanoid = char:WaitForChild("Humanoid")
@@ -163,10 +178,69 @@ if player.Character then setupHumanoid(player.Character) end
 player.CharacterAdded:Connect(setupHumanoid)
 
 --------------------------------------------------
+-- VISUAL RESET ON RESPAWN
+--------------------------------------------------
+
+local function resetVisualEffects()
+	-- Restore Lighting fog
+	Lighting.FogStart = DEFAULT.FogStart
+	Lighting.FogEnd   = DEFAULT.FogEnd
+
+	-- Restore Atmosphere
+	for atmo, data in pairs(DEFAULT.Atmosphere) do
+		if atmo and atmo.Parent then
+			atmo.Density = data.Density
+			atmo.Haze    = data.Haze
+			atmo.Offset  = data.Offset
+		end
+	end
+
+	-- Remove / normalize post-processing effects
+	for _, v in ipairs(Lighting:GetChildren()) do
+		if v:IsA("ColorCorrectionEffect") then
+			v.Brightness = 0
+			v.Contrast = 0
+			v.Saturation = 0
+			v.TintColor = Color3.new(1,1,1)
+		elseif v:IsA("BlurEffect") then
+			v.Size = 0
+		elseif v:IsA("DepthOfFieldEffect") then
+			v.Enabled = false
+		end
+	end
+
+	for _, v in ipairs(camera:GetChildren()) do
+		if v:IsA("ColorCorrectionEffect") then
+			v.Brightness = 0
+			v.Contrast = 0
+			v.Saturation = 0
+			v.TintColor = Color3.new(1,1,1)
+		elseif v:IsA("BlurEffect") then
+			v.Size = 0
+		elseif v:IsA("DepthOfFieldEffect") then
+			v.Enabled = false
+		end
+	end
+end
+
+-- Hook respawn
+player.CharacterAdded:Connect(function()
+	task.wait(0.2) -- wait Lighting settle
+	resetVisualEffects()
+
+	-- Re-apply No Fog if still enabled
+	if NoFogEnabled then
+		task.wait(0.1)
+		applyNoFog()
+	end
+end)
+
+
+--------------------------------------------------
 -- UI WINDOW
 --------------------------------------------------
 local window = engine.new({
-	text = "Movement",
+	text = "Movement Utilities by Kixdev",
 	size = Vector2.new(350, 320),
 })
 window.open()
@@ -225,7 +299,7 @@ tab.new("slider", {
 end)
 
 --------------------------------------------------
--- FLY MODE (CLEAN)
+-- FLY MODE
 --------------------------------------------------
 tab.new("switch", { text = "Fly Mode" }).event:Connect(function(state)
 	if state then
@@ -240,6 +314,9 @@ end)
 --------------------------------------------------
 tab.new("switch", { text = "Instant Interact" }).event:Connect(function(v)
 	InstantInteractEnabled = v
+	if not v then
+		restoreInstantInteract()
+	end
 end)
 
 tab.new("switch", { text = "Infinite Jump" }).event:Connect(function(v)
@@ -253,7 +330,7 @@ end)
 --------------------------------------------------
 -- NOCLIP
 --------------------------------------------------
-local noclipSwitch = tab.new("switch", { text = "Noclip" })
+local noclipSwitch = tab.new("switch", { text = "NoClip" })
 noclipSwitch.set(false)
 
 noclipSwitch.event:Connect(function(state)
@@ -287,28 +364,156 @@ noclipSwitch.event:Connect(function(state)
 end)
 
 --------------------------------------------------
--- NO FOG (CLIENT VISUAL)
+-- NO FOG
+-- Fog & Haze ONLY (no lighting war)
 --------------------------------------------------
-tab.new("switch", { text = "No Fog (Clear Skies)" }).event:Connect(function(state)
-	NoFogEnabled = state
 
-	if state then
-		-- Disable fog
-		Lighting.FogStart = 1e7
-		Lighting.FogEnd = 1e7 + 1000
-	else
-		-- Restore default fog
-		Lighting.FogStart = DEFAULT_FOG_START
-		Lighting.FogEnd = DEFAULT_FOG_END
+-- Save defaults
+local DEFAULT = {
+	FogStart = Lighting.FogStart,
+	FogEnd   = Lighting.FogEnd,
+	Atmosphere = {},
+}
+
+--------------------------------------------------
+-- ATMOSPHERE
+--------------------------------------------------
+local function getAtmospheres()
+	local t = {}
+	for _, v in ipairs(Lighting:GetChildren()) do
+		if v:IsA("Atmosphere") then
+			table.insert(t, v)
+		end
+	end
+	return t
+end
+
+local function cacheAtmosphere(a)
+	if DEFAULT.Atmosphere[a] then return end
+	DEFAULT.Atmosphere[a] = {
+		Density = a.Density,
+		Haze = a.Haze,
+	}
+end
+
+--------------------------------------------------
+-- APPLY / RESTORE (FOG ONLY)
+--------------------------------------------------
+local function applyNoFog()
+	-- Classic fog
+	Lighting.FogStart = 1e7
+	Lighting.FogEnd   = 1e7 + 1000
+
+	-- Atmosphere haze ONLY
+	for _, a in ipairs(getAtmospheres()) do
+		cacheAtmosphere(a)
+		a.Density = 0
+		a.Haze = 0
+	end
+end
+
+local function restoreFog()
+	Lighting.FogStart = DEFAULT.FogStart
+	Lighting.FogEnd   = DEFAULT.FogEnd
+
+	for a, d in pairs(DEFAULT.Atmosphere) do
+		if a and a.Parent then
+			a.Density = d.Density
+			a.Haze = d.Haze
+		end
+	end
+end
+
+--------------------------------------------------
+-- EVENT HOOKS (SAFE)
+--------------------------------------------------
+Lighting.ChildAdded:Connect(function(child)
+	if NoFogEnabled and child:IsA("Atmosphere") then
+		task.delay(0.1, applyNoFog)
+	end
+end)
+
+Lighting:GetPropertyChangedSignal("FogEnd"):Connect(function()
+	if NoFogEnabled then
+		task.delay(0.1, applyNoFog)
 	end
 end)
 
 --------------------------------------------------
+-- SAFETY TICK
+--------------------------------------------------
+local function startTick()
+	if tickConn then return end
+	tickConn = task.spawn(function()
+		while NoFogEnabled do
+			applyNoFog()
+			task.wait(1.2) -- SLOW = no war
+		end
+	end)
+end
+
+local function stopTick()
+	if tickConn then
+		task.cancel(tickConn)
+		tickConn = nil
+	end
+end
+
+--------------------------------------------------
+-- UI TOGGLE
+--------------------------------------------------
+tab.new("switch", { text = "No Fog" }).event:Connect(function(state)
+	NoFogEnabled = state
+	if state then
+		applyNoFog()
+		startTick()
+	else
+		stopTick()
+		restoreFog()
+	end
+end)
+
+--------------------------------------------------
+-- INSTANT INTERACT
+--------------------------------------------------
+
+ProximityPromptService.PromptShown:Connect(function(prompt)
+	if not InstantInteractEnabled then return end
+	if not prompt or not prompt.Parent then return end
+
+	if not PromptDefaults[prompt] then
+		PromptDefaults[prompt] = {
+			HoldDuration = prompt.HoldDuration,
+			MaxDistance  = prompt.MaxActivationDistance
+		}
+	end
+
+	-- Instant interact
+	prompt.HoldDuration = 0
+
+	if prompt.MaxActivationDistance > MAX_INTERACT_DISTANCE then
+		prompt.MaxActivationDistance = MAX_INTERACT_DISTANCE
+	end
+end)
+
+--------------------------------------------------
+-- RESTORE INSTANT INTERACT (TOGGLE OFF SAFE)
+--------------------------------------------------
+
+local function restoreInstantInteract()
+	for prompt, data in pairs(PromptDefaults) do
+		if prompt and prompt.Parent then
+			prompt.HoldDuration = data.HoldDuration
+			prompt.MaxActivationDistance = data.MaxDistance
+		end
+	end
+	table.clear(PromptDefaults)
+end
+
+
+--------------------------------------------------
 -- LOGICS
 --------------------------------------------------
-ProximityPromptService.PromptShown:Connect(function(p)
-	if InstantInteractEnabled then p.HoldDuration = 0 end
-end)
 
 UserInputService.JumpRequest:Connect(function()
 	if InfiniteJumpEnabled and humanoid then
@@ -366,7 +571,7 @@ end)
 local info = tab.new("label", { text = "Hide UI : , (Comma)" })
 do
 	local l = info.self
-	l.TextSize = 26
+	l.TextSize = 20
 	l.Font = Enum.Font.GothamBold
 	l.TextXAlignment = Enum.TextXAlignment.Center
 	l.Size = UDim2.new(1,0,0,36)
