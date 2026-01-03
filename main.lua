@@ -36,9 +36,9 @@ local DEFAULT_WALKSPEED = 16
 local TargetWalkSpeed = DEFAULT_WALKSPEED
 local walkSpeedConn
 
-local MAX_INTERACT_DISTANCE = 12
-local PromptDefaults = {}
-local StalePrompts = {}
+local InvisibleEnabled = false
+local invisibleThread
+local invisibleLoading = false
 
 --------------------------------------------------
 -- NO FOG
@@ -46,7 +46,6 @@ local StalePrompts = {}
 local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 
-local NoFogEnabled = false
 local tickConn
 
 -- Save defaults
@@ -77,7 +76,7 @@ local frameCount = 0
 local lastFpsUpdate = os.clock()
 
 --------------------------------------------------
--- FLY FUNCTIONS (CLEAN & SAFE)
+-- FLY FUNCTIONS
 --------------------------------------------------
 local function startFlying()
 	if flying then return end
@@ -140,6 +139,43 @@ local function stopFlying()
 		end
 	end
 end
+
+--------------------------------------------------
+-- INVISIBLE (EXTERNAL SCRIPT)
+--------------------------------------------------
+
+local INVISIBLE_URL = "https://raw.githubusercontent.com/Kixdev/roblox-invisible-hybrid-script/refs/heads/main/main.lua"
+
+local function enableInvisible()
+	if invisibleLoading then return end
+	invisibleLoading = true
+	InvisibleEnabled = true
+
+	local char = player.Character
+	if not char then
+		invisibleLoading = false
+		return
+	end
+
+	char:WaitForChild("HumanoidRootPart", 5)
+	task.wait(0.15)
+
+	print("[Invisible] running")
+
+	loadstring(game:HttpGet(INVISIBLE_URL))()
+
+	invisibleLoading = false
+end
+
+local function disableInvisible()
+	if not InvisibleEnabled then return end
+	InvisibleEnabled = false
+
+	if player.Character then
+		player.Character:BreakJoints()
+	end
+end
+
 
 --------------------------------------------------
 -- WALK SPEED GUARD
@@ -223,25 +259,27 @@ local function resetVisualEffects()
 	end
 end
 
--- Hook respawn
-player.CharacterAdded:Connect(function()
-	task.wait(0.2) -- wait Lighting settle
+player.CharacterAdded:Connect(function(char)
+	task.wait(0.25)
 	resetVisualEffects()
 
-	-- Re-apply No Fog if still enabled
 	if NoFogEnabled then
 		task.wait(0.1)
 		applyNoFog()
 	end
-end)
 
+	if InvisibleEnabled then
+		task.wait(0.2)
+		enableInvisible()
+	end
+end)
 
 --------------------------------------------------
 -- UI WINDOW
 --------------------------------------------------
 local window = engine.new({
 	text = "Movement Utilities by Kixdev",
-	size = Vector2.new(350, 320),
+	size = Vector2.new(350, 345),
 })
 window.open()
 
@@ -314,9 +352,6 @@ end)
 --------------------------------------------------
 tab.new("switch", { text = "Instant Interact" }).event:Connect(function(v)
 	InstantInteractEnabled = v
-	if not v then
-		restoreInstantInteract()
-	end
 end)
 
 tab.new("switch", { text = "Infinite Jump" }).event:Connect(function(v)
@@ -330,7 +365,7 @@ end)
 --------------------------------------------------
 -- NOCLIP
 --------------------------------------------------
-local noclipSwitch = tab.new("switch", { text = "NoClip" })
+local noclipSwitch = tab.new("switch", { text = "Noclip" })
 noclipSwitch.set(false)
 
 noclipSwitch.event:Connect(function(state)
@@ -364,8 +399,19 @@ noclipSwitch.event:Connect(function(state)
 end)
 
 --------------------------------------------------
+-- INVISIBLE
+--------------------------------------------------
+tab.new("switch", { text = "Invicible Character" }).event:Connect(function(state)
+	if state then
+		enableInvisible()
+	else
+		disableInvisible()
+	end
+end)
+
+--------------------------------------------------
 -- NO FOG
--- Fog & Haze ONLY (no lighting war)
+-- Fog & Haze ONLY
 --------------------------------------------------
 
 -- Save defaults
@@ -397,7 +443,7 @@ local function cacheAtmosphere(a)
 end
 
 --------------------------------------------------
--- APPLY / RESTORE (FOG ONLY)
+-- APPLY / RESTORE
 --------------------------------------------------
 local function applyNoFog()
 	-- Classic fog
@@ -425,7 +471,7 @@ local function restoreFog()
 end
 
 --------------------------------------------------
--- EVENT HOOKS (SAFE)
+-- EVENT HOOKS
 --------------------------------------------------
 Lighting.ChildAdded:Connect(function(child)
 	if NoFogEnabled and child:IsA("Atmosphere") then
@@ -462,7 +508,7 @@ end
 --------------------------------------------------
 -- UI TOGGLE
 --------------------------------------------------
-tab.new("switch", { text = "No Fog" }).event:Connect(function(state)
+tab.new("switch", { text = "No Fog (Bright)" }).event:Connect(function(state)
 	NoFogEnabled = state
 	if state then
 		applyNoFog()
@@ -473,47 +519,13 @@ tab.new("switch", { text = "No Fog" }).event:Connect(function(state)
 	end
 end)
 
---------------------------------------------------
--- INSTANT INTERACT
---------------------------------------------------
-
-ProximityPromptService.PromptShown:Connect(function(prompt)
-	if not InstantInteractEnabled then return end
-	if not prompt or not prompt.Parent then return end
-
-	if not PromptDefaults[prompt] then
-		PromptDefaults[prompt] = {
-			HoldDuration = prompt.HoldDuration,
-			MaxDistance  = prompt.MaxActivationDistance
-		}
-	end
-
-	-- Instant interact
-	prompt.HoldDuration = 0
-
-	if prompt.MaxActivationDistance > MAX_INTERACT_DISTANCE then
-		prompt.MaxActivationDistance = MAX_INTERACT_DISTANCE
-	end
-end)
-
---------------------------------------------------
--- RESTORE INSTANT INTERACT (TOGGLE OFF SAFE)
---------------------------------------------------
-
-local function restoreInstantInteract()
-	for prompt, data in pairs(PromptDefaults) do
-		if prompt and prompt.Parent then
-			prompt.HoldDuration = data.HoldDuration
-			prompt.MaxActivationDistance = data.MaxDistance
-		end
-	end
-	table.clear(PromptDefaults)
-end
-
 
 --------------------------------------------------
 -- LOGICS
 --------------------------------------------------
+ProximityPromptService.PromptShown:Connect(function(p)
+	if InstantInteractEnabled then p.HoldDuration = 0 end
+end)
 
 UserInputService.JumpRequest:Connect(function()
 	if InfiniteJumpEnabled and humanoid then
@@ -550,20 +562,35 @@ RunService.Heartbeat:Connect(function()
 end)
 
 --------------------------------------------------
--- UI TOGGLE ( , )
+-- UI TOGGLE ( , ) [MOVEMENT + INVISIBLE]
 --------------------------------------------------
 local hidden = false
+
 UserInputService.InputBegan:Connect(function(i, gp)
 	if gp then return end
-	if i.KeyCode == Enum.KeyCode.Comma then
+	if i.KeyCode ~= Enum.KeyCode.Comma then return end
+
+	hidden = not hidden
+
+	-- === HIDE MOVEMENT UI (imgui) ===
+	if CoreGui:FindFirstChild("imgui2") then
 		for _, v in ipairs(CoreGui.imgui2:GetChildren()) do
 			if v:IsA("ImageLabel") and v.Name == "Main" then
-				hidden = not hidden
 				v.Visible = not hidden
 			end
 		end
 	end
+
+	-- === HIDE INVICIBLE UI ===
+	local pg = player:FindFirstChild("PlayerGui")
+	if pg then
+		local invisibleUI = pg:FindFirstChild("InvisibleStatusUI")
+		if invisibleUI then
+			invisibleUI.Enabled = not hidden
+		end
+	end
 end)
+
 
 --------------------------------------------------
 -- KEYBIND INFO
@@ -571,7 +598,7 @@ end)
 local info = tab.new("label", { text = "Hide UI : , (Comma)" })
 do
 	local l = info.self
-	l.TextSize = 20
+	l.TextSize = 26
 	l.Font = Enum.Font.GothamBold
 	l.TextXAlignment = Enum.TextXAlignment.Center
 	l.Size = UDim2.new(1,0,0,36)
