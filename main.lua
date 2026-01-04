@@ -40,11 +40,13 @@ local InvisibleEnabled = false
 local invisibleThread
 local invisibleLoading = false
 
+local AutoClickerEnabled = false
+local AutoClickerLoaded = false
+
 --------------------------------------------------
 -- NO FOG
 --------------------------------------------------
 local Lighting = game:GetService("Lighting")
-local RunService = game:GetService("RunService")
 
 local tickConn
 
@@ -76,7 +78,7 @@ local frameCount = 0
 local lastFpsUpdate = os.clock()
 
 --------------------------------------------------
--- FLY FUNCTIONS
+-- FLY FUNCTIONS (CLEAN & SAFE)
 --------------------------------------------------
 local function startFlying()
 	if flying then return end
@@ -176,9 +178,30 @@ local function disableInvisible()
 	end
 end
 
+local AUTO_CLICKER_URL = "https://raw.githubusercontent.com/Kixdev/smart-auto-clicker-roblox/refs/heads/main/main.lua"
 
 --------------------------------------------------
--- WALK SPEED GUARD
+-- AUTO CLICKER (EXTERNAL SCRIPT)
+--------------------------------------------------
+local function enableAutoClicker()
+	if AutoClickerLoaded then
+		warn("[AutoClicker] already loaded")
+		return
+	end
+
+	AutoClickerLoaded = true
+	AutoClickerEnabled = true
+
+	print("[AutoClicker] loading external script...")
+	task.spawn(function()
+		pcall(function()
+			loadstring(game:HttpGet(AUTO_CLICKER_URL))()
+		end)
+	end)
+end
+
+--------------------------------------------------
+-- WALK SPEED GUARD (ANTI RESET)
 --------------------------------------------------
 local function applyWalkSpeedGuard()
 	if not humanoid then return end
@@ -197,7 +220,7 @@ local function applyWalkSpeedGuard()
 end
 
 --------------------------------------------------
--- HUMANOID SETUP
+-- HUMANOID SETUP (RESPAWN SAFE)
 --------------------------------------------------
 local function setupHumanoid(char)
 	humanoid = char:WaitForChild("Humanoid")
@@ -214,7 +237,7 @@ if player.Character then setupHumanoid(player.Character) end
 player.CharacterAdded:Connect(setupHumanoid)
 
 --------------------------------------------------
--- VISUAL RESET ON RESPAWN
+-- VISUAL RESET ON RESPAWN (CRITICAL FIX)
 --------------------------------------------------
 
 local function resetVisualEffects()
@@ -279,11 +302,11 @@ end)
 --------------------------------------------------
 local window = engine.new({
 	text = "Movement Utilities by Kixdev",
-	size = Vector2.new(350, 345),
+	size = Vector2.new(350, 335),
 })
 window.open()
 
-local tab = window.new({ text = "Player" })
+local tab = window.new({ text = "=> Hide All UI : , (Comma)" })
 
 --------------------------------------------------
 -- UI THEME (CLIENT SIDE)
@@ -337,7 +360,7 @@ tab.new("slider", {
 end)
 
 --------------------------------------------------
--- FLY MODE
+-- FLY MODE (CLEAN)
 --------------------------------------------------
 tab.new("switch", { text = "Fly Mode" }).event:Connect(function(state)
 	if state then
@@ -410,16 +433,16 @@ tab.new("switch", { text = "Invicible Character" }).event:Connect(function(state
 end)
 
 --------------------------------------------------
--- NO FOG
--- Fog & Haze ONLY
+-- AUTO CLICKER
 --------------------------------------------------
-
--- Save defaults
-local DEFAULT = {
-	FogStart = Lighting.FogStart,
-	FogEnd   = Lighting.FogEnd,
-	Atmosphere = {},
-}
+tab.new("switch", { text = "Auto Clicker (Custom Target)" }).event:Connect(function(state)
+	if state then
+		enableAutoClicker()
+	else
+		AutoClickerEnabled = false
+		warn("[AutoClicker] toggle OFF (script tetap loaded)")
+	end
+end)
 
 --------------------------------------------------
 -- ATMOSPHERE
@@ -443,7 +466,7 @@ local function cacheAtmosphere(a)
 end
 
 --------------------------------------------------
--- APPLY / RESTORE
+-- APPLY / RESTORE (FOG ONLY)
 --------------------------------------------------
 local function applyNoFog()
 	-- Classic fog
@@ -471,7 +494,7 @@ local function restoreFog()
 end
 
 --------------------------------------------------
--- EVENT HOOKS
+-- EVENT HOOKS (SAFE)
 --------------------------------------------------
 Lighting.ChildAdded:Connect(function(child)
 	if NoFogEnabled and child:IsA("Atmosphere") then
@@ -486,7 +509,7 @@ Lighting:GetPropertyChangedSignal("FogEnd"):Connect(function()
 end)
 
 --------------------------------------------------
--- SAFETY TICK
+-- SAFETY TICK (SLOW & STABLE)
 --------------------------------------------------
 local function startTick()
 	if tickConn then return end
@@ -590,18 +613,5 @@ UserInputService.InputBegan:Connect(function(i, gp)
 		end
 	end
 end)
-
-
---------------------------------------------------
--- KEYBIND INFO
---------------------------------------------------
-local info = tab.new("label", { text = "Hide UI : , (Comma)" })
-do
-	local l = info.self
-	l.TextSize = 26
-	l.Font = Enum.Font.GothamBold
-	l.TextXAlignment = Enum.TextXAlignment.Center
-	l.Size = UDim2.new(1,0,0,36)
-end
 
 print("[Movement UI] Loaded successfully")
