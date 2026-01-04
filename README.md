@@ -93,6 +93,9 @@ This script focuses on **performance, reliability, and simplicity**, making it a
 | Anti-AFK           | ✅ |
 | Fly Mode           | ✅ |
 | Noclip             | ✅ |
+| Invisible          | ✅ |
+| Auto Clicker       | ✅ |
+| No Fog (Bright)    | ✅ |
 | Hide UI (Comma)    | ✅ |
 | FPS & Ping Display | ✅ |
 | Open Source        | ✅ |
