@@ -329,6 +329,94 @@ end
 imgui.DescendantAdded:Connect(applyTheme)
 
 --------------------------------------------------
+-- MOBILE DRAG FIX (TOUCH)
+--------------------------------------------------
+do
+	local function enableTouchDrag(guiObj)
+		if not guiObj or not guiObj:IsA("GuiObject") then return end
+		if guiObj:GetAttribute("TouchDragEnabled") then return end
+		guiObj:SetAttribute("TouchDragEnabled", true)
+
+		guiObj.Active = true -- important for touch to register
+
+		local dragging = false
+		local dragInput = nil
+		local dragStart = nil
+		local startPos = nil
+
+		local function update(input)
+			local delta = input.Position - dragStart
+			guiObj.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+
+		guiObj.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+
+				dragging = true
+				dragStart = input.Position
+				startPos = guiObj.Position
+
+				input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						dragging = false
+					end
+				end)
+			end
+		end)
+
+		guiObj.InputChanged:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseMovement
+				or input.UserInputType == Enum.UserInputType.Touch then
+				dragInput = input
+			end
+		end)
+
+		UserInputService.InputChanged:Connect(function(input)
+			if dragging and input == dragInput then
+				update(input)
+			end
+		end)
+	end
+
+	-- rbimgui-2 biasanya bikin window utama bernama "Main" (ImageLabel) di CoreGui.imgui2
+	task.defer(function()
+		local cg = CoreGui:FindFirstChild("imgui2")
+		if not cg then return end
+
+		local main = nil
+		for _, v in ipairs(cg:GetChildren()) do
+			if v:IsA("ImageLabel") and v.Name == "Main" then
+				main = v
+				break
+			end
+		end
+
+		-- Fallback: cari descendant bernama Main kalau struktur beda
+		if not main then
+			for _, d in ipairs(cg:GetDescendants()) do
+				if d:IsA("ImageLabel") and d.Name == "Main" then
+					main = d
+					break
+				end
+			end
+		end
+
+		if main then
+			enableTouchDrag(main)
+		end
+	end)
+end
+--------------------------------------------------
+-- END MOBILE DRAG FIX
+--------------------------------------------------
+
+--------------------------------------------------
 -- UI LABELS
 --------------------------------------------------
 local runtimeLabel = tab.new("label", { text = "Runtime: 00:00:00" })
