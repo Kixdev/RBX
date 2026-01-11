@@ -12,7 +12,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local CoreGui = game:GetService("CoreGui")
-local VirtualUser = game:GetService("VirtualUser")
+
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
@@ -645,11 +645,9 @@ UserInputService.JumpRequest:Connect(function()
 end)
 
 player.Idled:Connect(function()
-	if AntiAFKEnabled then
-		VirtualUser:Button2Down(Vector2.new(), camera.CFrame)
-		task.wait(0.05)
-		VirtualUser:Button2Up(Vector2.new(), camera.CFrame)
-	end
+    if AntiAFKEnabled then
+        player.PlayerGui:SetTopbarTransparency(0.99)
+    end
 end)
 
 --------------------------------------------------
