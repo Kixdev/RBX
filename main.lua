@@ -31,6 +31,8 @@ local InstantInteractEnabled = false
 local InfiniteJumpEnabled = false
 local AntiAFKEnabled = false
 local antiAFKConnection = nil
+local wiggleTime = 60 -- tiap 60 detik
+local hrp = nil
 
 local NoclipEnabled = false
 
@@ -474,29 +476,34 @@ end)
 -- Anti-AFK Script Using a Loop Instead of Idled
 local AntiAFKThread = nil
 
-tab.new("switch", { text = "Anti AFK" }).event:Connect(function(state)
+tab.new("switch", { text = "Anti AFK (Stealth Mode)" }).event:Connect(function(state)
     AntiAFKEnabled = state
 
-    if AntiAFKEnabled and not AntiAFKThread then
-        AntiAFKThread = task.spawn(function()
-            while AntiAFKEnabled do
-                task.wait(60)
-
+    if AntiAFKEnabled and not AntiAFKConnection then
+        AntiAFKConnection = RunService.RenderStepped:Connect(function()
+            if tick() % wiggleTime < 0.05 then
                 local char = player.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
-                    local hrp = char.HumanoidRootPart
+                    hrp = char.HumanoidRootPart
                     local orig = hrp.CFrame
-                    pcall(function()
-                        hrp.CFrame = orig * CFrame.new(0, 0, 0.1)
-                        task.wait(0.05)
-                        hrp.CFrame = orig
-                    end)
+
+                    -- Gerakkan karakter sedikit (sub-pixel)
+                    hrp.CFrame = orig * CFrame.new(0, 0, 0.05)
+                    task.wait(0.1)
+                    hrp.CFrame = orig
+
+                    -- Kamera wiggle
+                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.2), 0)
+                    task.wait(0.1)
+                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(-0.2), 0)
+
+                    print("[AFK Stealth] Wiggled at", tick())
                 end
             end
         end)
-    elseif not AntiAFKEnabled and AntiAFKThread then
-        task.cancel(AntiAFKThread)
-        AntiAFKThread = nil
+    elseif not AntiAFKEnabled and AntiAFKConnection then
+        AntiAFKConnection:Disconnect()
+        AntiAFKConnection = nil
     end
 end)
 
