@@ -14,6 +14,7 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 local CoreGui = game:GetService("CoreGui")
 
 local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser") 
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
