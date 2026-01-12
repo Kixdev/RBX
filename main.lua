@@ -30,6 +30,8 @@ local WalkSpeedEnabled = false
 local InstantInteractEnabled = false
 local InfiniteJumpEnabled = false
 local AntiAFKEnabled = false
+local antiAFKConnection = nil
+
 local NoclipEnabled = false
 
 local DEFAULT_WALKSPEED = 16
@@ -470,8 +472,31 @@ tab.new("switch", { text = "Infinite Jump" }).event:Connect(function(v)
 end)
 
 tab.new("switch", { text = "Anti AFK" }).event:Connect(function(v)
-	AntiAFKEnabled = v
+    AntiAFKEnabled = v
+
+    if AntiAFKEnabled then
+        if antiAFKConnection == nil then
+            antiAFKConnection = game:GetService("Players").LocalPlayer.Idled:Connect(function()
+                -- Simulate minimal movement (toggle CFrame slightly)
+                local char = game:GetService("Players").LocalPlayer.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    local hrp = char.HumanoidRootPart
+                    local orig = hrp.CFrame
+                    hrp.CFrame = orig * CFrame.new(0, 0, 0.1)
+                    wait(0.1)
+                    hrp.CFrame = orig
+                end
+            end)
+        end
+    else
+        -- Disconnect if Anti-AFK is turned off
+        if antiAFKConnection then
+            antiAFKConnection:Disconnect()
+            antiAFKConnection = nil
+        end
+    end
 end)
+)
 
 --------------------------------------------------
 -- NOCLIP
@@ -642,12 +667,6 @@ UserInputService.JumpRequest:Connect(function()
 	if InfiniteJumpEnabled and humanoid then
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 	end
-end)
-
-player.Idled:Connect(function()
-    if AntiAFKEnabled then
-        player.PlayerGui:SetTopbarTransparency(0.99)
-    end
 end)
 
 --------------------------------------------------
