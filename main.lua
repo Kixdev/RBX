@@ -480,49 +480,63 @@ UserInputService.InputBegan:Connect(function()
 end)
 
 tab.new("switch", { text = "Anti AFK (Stealth Mode)" }).event:Connect(function(state)
-    AntiAFKEnabled = state
+	AntiAFKEnabled = state
 
-    if AntiAFKEnabled and not AntiAFKConnection then
-        AntiAFKConnection = RunService.RenderStepped:Connect(function()
-            if tick() - lastInput > wiggleTime then
-                local char = player.Character
-                if char and char:FindFirstChild("HumanoidRootPart") then
-                    local hrp = char.HumanoidRootPart
-                    local cam = workspace.CurrentCamera
+	if AntiAFKEnabled then
+		if AntiAFKConnection then
+			AntiAFKConnection:Disconnect()
+		end
 
-                    -- Tween micro movement
-                    local tween = TweenService:Create(hrp, TweenInfo.new(0.25), {
-                        CFrame = hrp.CFrame * CFrame.new(0.05, 0, 0)
-                    })
-                    tween:Play()
-                    tween.Completed:Wait()
+		AntiAFKConnection = RunService.RenderStepped:Connect(function()
+			if tick() - lastInput > wiggleTime then
+				local char = player.Character
+				if not char then return end
 
-                    -- Kamera wiggle
-                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.3), 0)
-                    task.wait(0.1)
-                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(-0.3), 0)
+				local hrp = char:FindFirstChild("HumanoidRootPart")
+				local hum = char:FindFirstChild("Humanoid")
+				local cam = workspace.CurrentCamera
 
-                    -- Animasi idle palsu
-                    local hum = char:FindFirstChild("Humanoid")
-                    if hum then
-                        local anim = Instance.new("Animation")
-                        anim.AnimationId = "rbxassetid://507770239" -- waving
-                        local load = hum:LoadAnimation(anim)
-                        load:Play()
-                        wait(2)
-                        load:Stop()
-                    end
+				if hrp then
+					local ok, tween = pcall(function()
+						return TweenService:Create(hrp, TweenInfo.new(0.25), {
+							CFrame = hrp.CFrame * CFrame.new(0.05, 0, 0)
+						})
+					end)
+					if ok and tween then
+						tween:Play()
+						tween.Completed:Wait()
+					end
+				end
 
-                    -- Reset timer
-                    lastInput = tick()
-                end
-            end
-        end)
-    elseif not AntiAFKEnabled and AntiAFKConnection then
-        AntiAFKConnection:Disconnect()
-        AntiAFKConnection = nil
-    end
+				if cam then
+					cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.3), 0)
+					task.wait(0.1)
+					cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(-0.3), 0)
+				end
+
+				if hum then
+					local success, err = pcall(function()
+						local anim = Instance.new("Animation")
+						anim.AnimationId = "rbxassetid://507770239"
+						local track = hum:LoadAnimation(anim)
+						track:Play()
+						wait(math.random(1.5, 2.5)) -- lebih manusiawi
+						track:Stop()
+					end)
+					if not success then warn("[AntiAFK] Anim error:", err) end
+				end
+
+				lastInput = tick()
+			end
+		end)
+	else
+		if AntiAFKConnection then
+			AntiAFKConnection:Disconnect()
+			AntiAFKConnection = nil
+		end
+	end
 end)
+
 
 
 --------------------------------------------------
