@@ -14,7 +14,7 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 local CoreGui = game:GetService("CoreGui")
 
 local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser") 
+local VirtualUser = game:GetService("VirtualUser") -- Remove This if You Got Kicked by Experience
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
