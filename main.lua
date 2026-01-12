@@ -473,31 +473,48 @@ tab.new("switch", { text = "Infinite Jump" }).event:Connect(function(v)
 	InfiniteJumpEnabled = v
 end)
 
--- Anti-AFK Script Using a Loop Instead of Idled
-local AntiAFKThread = nil
+local lastInput = tick()
+
+UserInputService.InputBegan:Connect(function()
+	lastInput = tick()
+end)
 
 tab.new("switch", { text = "Anti AFK (Stealth Mode)" }).event:Connect(function(state)
     AntiAFKEnabled = state
 
     if AntiAFKEnabled and not AntiAFKConnection then
         AntiAFKConnection = RunService.RenderStepped:Connect(function()
-            if tick() % wiggleTime < 0.05 then
+            if tick() - lastInput > wiggleTime then
                 local char = player.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
-                    hrp = char.HumanoidRootPart
-                    local orig = hrp.CFrame
+                    local hrp = char.HumanoidRootPart
+                    local cam = workspace.CurrentCamera
 
-                    -- Gerakkan karakter sedikit (sub-pixel)
-                    hrp.CFrame = orig * CFrame.new(0, 0, 0.05)
-                    task.wait(0.1)
-                    hrp.CFrame = orig
+                    -- Tween micro movement
+                    local tween = TweenService:Create(hrp, TweenInfo.new(0.25), {
+                        CFrame = hrp.CFrame * CFrame.new(0.05, 0, 0)
+                    })
+                    tween:Play()
+                    tween.Completed:Wait()
 
                     -- Kamera wiggle
-                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.2), 0)
+                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(0.3), 0)
                     task.wait(0.1)
-                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(-0.2), 0)
+                    cam.CFrame = cam.CFrame * CFrame.Angles(0, math.rad(-0.3), 0)
 
-                    print("[AFK Stealth] Wiggled at", tick())
+                    -- Animasi idle palsu
+                    local hum = char:FindFirstChild("Humanoid")
+                    if hum then
+                        local anim = Instance.new("Animation")
+                        anim.AnimationId = "rbxassetid://507770239" -- waving
+                        local load = hum:LoadAnimation(anim)
+                        load:Play()
+                        wait(2)
+                        load:Stop()
+                    end
+
+                    -- Reset timer
+                    lastInput = tick()
                 end
             end
         end)
@@ -506,6 +523,7 @@ tab.new("switch", { text = "Anti AFK (Stealth Mode)" }).event:Connect(function(s
         AntiAFKConnection = nil
     end
 end)
+
 
 --------------------------------------------------
 -- NOCLIP
