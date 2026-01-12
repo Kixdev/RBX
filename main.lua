@@ -471,32 +471,34 @@ tab.new("switch", { text = "Infinite Jump" }).event:Connect(function(v)
 	InfiniteJumpEnabled = v
 end)
 
-tab.new("switch", { text = "Anti AFK" }).event:Connect(function(v)
-    AntiAFKEnabled = v
+-- Anti-AFK Script Using a Loop Instead of Idled
+local AntiAFKThread = nil
 
-    if AntiAFKEnabled then
-        if antiAFKConnection == nil then
-            antiAFKConnection = game:GetService("Players").LocalPlayer.Idled:Connect(function()
-                -- Simulate minimal movement (toggle CFrame slightly)
-                local char = game:GetService("Players").LocalPlayer.Character
+tab.new("switch", { text = "Anti AFK" }).event:Connect(function(state)
+    AntiAFKEnabled = state
+
+    if AntiAFKEnabled and not AntiAFKThread then
+        AntiAFKThread = task.spawn(function()
+            while AntiAFKEnabled do
+                task.wait(60)
+
+                local char = player.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
                     local hrp = char.HumanoidRootPart
                     local orig = hrp.CFrame
-                    hrp.CFrame = orig * CFrame.new(0, 0, 0.1)
-                    wait(0.1)
-                    hrp.CFrame = orig
+                    pcall(function()
+                        hrp.CFrame = orig * CFrame.new(0, 0, 0.1)
+                        task.wait(0.05)
+                        hrp.CFrame = orig
+                    end)
                 end
-            end)
-        end
-    else
-        -- Disconnect if Anti-AFK is turned off
-        if antiAFKConnection then
-            antiAFKConnection:Disconnect()
-            antiAFKConnection = nil
-        end
+            end
+        end)
+    elseif not AntiAFKEnabled and AntiAFKThread then
+        task.cancel(AntiAFKThread)
+        AntiAFKThread = nil
     end
 end)
-)
 
 --------------------------------------------------
 -- NOCLIP
